@@ -1,0 +1,99 @@
+---
+title: "Wearable Activity Quality Prediction"
+author: "Arjan van Vliet"
+date: "12/10/2018"
+output: html_document
+---
+
+# Introduction
+In this study the Weight Lifting Exercise dataset from <http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har> is used to predict in which way a dumbbell was lifted. Six young healthy participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+# Data Cleaning
+A quick view on the data reviewed that there are quite some columns that contain a mostly empty fields. As it will not be meaningfull to impute these columns there are removed. Also columns that does not seem to contain measurement data are removed from the dataset.
+
+```{r message=FALSE}
+library(caret)
+
+# Read in the data
+pml_training   <- read.csv("pml-training.csv")
+pml_validation <- read.csv("pml-testing.csv")
+
+# Remove the row number, user, time and window related columns which doesn't seem usefull
+pml_training   <- pml_training[,-c(1:7)]
+pml_validation <- pml_validation[,-c(1:7)]
+
+# Cleaning the data (only keep columns with does not contain empty fields)
+empty_vals <- sapply(pml_training, function(x) sum(is.na(x) | x == ""))
+pml_training_2   <- pml_training[,empty_vals==0]
+pml_validation_2 <- pml_validation[,empty_vals==0]
+
+# Create training and test datasets
+inTrain <- createDataPartition(pml_training_2$classe, p=0.75, list=FALSE)
+pml_cln_train <- pml_training_2[inTrain,]
+pml_cln_test  <- pml_training_2[-inTrain,]
+```
+
+# Model selection
+Different models are fitted to see which one will perform best. A simple hierarchical model, a boosted tree model (gradiant boosted) and a random forset.
+To train the models cross-validation is used with 5 folds. Cross-validation is used as it helps to prevent overfitting the model to the training set. 
+
+## Hierarchical Classification Tree
+A simple hierarchical classification tree is used as it is easy to interpret and computationally efficient. More complex models are expected to give better results at higher computational requirements. It is good to compare if the improvement in accuracy outperforms the 'simple' tree model.
+```{r message=FALSE}
+library(rattle)
+
+# Use k-fold cross validation with 5 folds
+train_ctrl <- trainControl(method="cv", number=5)
+
+fit_rpart <- train(classe ~ ., method="rpart", trControl=train_ctrl, data=pml_cln_train)
+fancyRpartPlot(fit_rpart$finalModel)
+
+# Calculate prediction and determine accuracy
+pred_rpart <- predict(fit_rpart, pml_cln_test)
+r_rpart <- confusionMatrix(pml_cln_test$classe, pred_rpart)
+
+# Print the out ot sample error and accuracy
+print(r_rpart$table)
+print(r_rpart$overall[1:4])
+```
+
+It is clear that the accuracy of the model is very poor, only about half of the predictions is correct.
+
+## Boosted Tree Model
+A boosted tree model is a collection of weighted tree models that uses the strengths of the individual models to improve the overal model accuracy and are believed to produce accurate models, just as random forests. 
+```{r message=FALSE}
+fit_gbm <- train(classe ~ ., method="gbm", trControl=train_ctrl, data=pml_cln_train, verbose=FALSE)
+
+# Calculate prediction and determine accuracy
+pred_gbm <- predict(fit_gbm, pml_cln_test)
+r_gbm <- confusionMatrix(pml_cln_test$classe, pred_gbm)
+
+# Print the out ot sample error and accuracy
+print(r_gbm$table)
+print(r_gbm$overall[1:4])
+```
+
+It is clear that this model brings a significant improvement in the prediction accuracy over the hierarchical tree model. The table shows shows the same result with much less out-of-sample prediction errors.
+
+## Random Forest
+The final model attempted is the random forest model.
+```{r message=FALSE}
+# Use same cross validation settings as with GBM, for the same reasons
+fit_rf <- train(classe ~ ., method="rf", trControl=train_ctrl, data=pml_cln_train)
+
+# Calculate prediction and determine accuracy
+pred_rf <- predict(fit_rf, pml_cln_test)
+r_rf <- confusionMatrix(pml_cln_test$classe, pred_rf)
+
+# Print the out ot sample error and accuracy
+print(r_rf$table)
+print(r_rf$overall[1:4])
+```
+The accuracy of the Random Forest model is even better and almost perfect on the test set (validation set). Similar to the boosted tree model the table shows the low number of out-of-sample prediction errors.
+
+# Prediction
+The best model, the random forest, is used to predict on the 20 observations in the test (validation) set.
+```{r message=FALSE}
+predict(fit_rf, pml_validation_2)
+```
+
